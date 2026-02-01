@@ -13,7 +13,7 @@ import requests
 # ======================================================
 app = FastAPI(title="AI Resume Analyzer")
 
-# ✅ HEALTH CHECK (ADDED)
+# ✅ HEALTH CHECK
 @app.get("/")
 def health():
     return {"status": "Backend running"}
@@ -23,21 +23,21 @@ def health():
 # ======================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],   # OK for now (local + deployment)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ======================================================
-# OPENROUTER CONFIG (SAFE)
+# OPENROUTER CONFIG (SAFE – NO CRASH)
 # ======================================================
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"
 
 if not OPENROUTER_API_KEY:
-    raise RuntimeError("OPENROUTER_API_KEY not set in environment")
+    print("WARNING: OPENROUTER_API_KEY not set. AI analysis will be disabled.")
 
 # ======================================================
 # SKILLS
@@ -80,41 +80,48 @@ def ats_keyword_score(resume_text: str, jd_skills):
     return int((matched / len(jd_skills)) * 100)
 
 # ======================================================
-# 🔥 OPENROUTER AI CALL
+# OPENROUTER AI CALL (SAFE)
 # ======================================================
 def openrouter_think(prompt: str) -> str:
+    if not OPENROUTER_API_KEY:
+        return "AI analysis unavailable (API key not configured)."
+
     safe_prompt = prompt[:3000]
 
-    response = requests.post(
-        OPENROUTER_URL,
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "AI Resume Improver"
-        },
-        json={
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a senior hiring manager. Be realistic, strict, and practical."
-                },
-                {
-                    "role": "user",
-                    "content": safe_prompt
-                }
-            ],
-            "temperature": 0.4,
-            "max_tokens": 700
-        },
-        timeout=60
-    )
+    try:
+        response = requests.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "http://localhost",
+                "X-Title": "AI Resume Improver"
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a senior hiring manager. Be realistic, strict, and practical."
+                    },
+                    {
+                        "role": "user",
+                        "content": safe_prompt
+                    }
+                ],
+                "temperature": 0.4,
+                "max_tokens": 700
+            },
+            timeout=60
+        )
 
-    if response.status_code != 200:
-        return f"OpenRouter error: {response.text}"
+        if response.status_code != 200:
+            return f"OpenRouter error: {response.text}"
 
-    return response.json()["choices"][0]["message"]["content"].strip()
+        return response.json()["choices"][0]["message"]["content"].strip()
+
+    except Exception as e:
+        return f"AI error: {str(e)}"
 
 # ======================================================
 # AI ANALYSIS
@@ -144,7 +151,7 @@ Answer as a hiring manager:
     }
 
 # ======================================================
-# DOCX UPDATE (DOCX ONLY)
+# DOCX UPDATE (ONLY FOR DOCX)
 # ======================================================
 def update_docx_resume(path, summary):
     doc = Document(path)
